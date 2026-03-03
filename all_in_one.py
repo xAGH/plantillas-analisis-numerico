@@ -1,60 +1,34 @@
-import ast
 import math
 import tkinter as tk
 from tkinter import Button, Frame, Label, StringVar, Tk
 from tkinter.ttk import Combobox
 from typing import Callable, Dict, List, Optional, Tuple, Type, Union
 
+import sympy as sp
+from mpmath import mp
+
+mp.dps = 11  # dígitos decimales de precisión
 VALID_SYMBOLS = {k: getattr(math, k) for k in dir(math) if not k.startswith("_")}
 VALID_SYMBOLS["pi"] = math.pi
 VALID_SYMBOLS["e"] = math.e
 
 
-def safe_eval(fn: str, x: float) -> float:
+def safe_eval(fn: str, x_value):
 
     if fn.strip() == "":
         raise ValueError("Por favor ingrese la función")
 
-    fn = fn.replace("^", "**")
-    node = ast.parse(fn, mode="eval")
+    x = sp.symbols("x")
 
-    allowed_nodes = (
-        ast.Expression,
-        ast.BinOp,
-        ast.UnaryOp,
-        ast.Call,
-        ast.Name,
-        ast.Load,
-        ast.Add,
-        ast.Sub,
-        ast.Mult,
-        ast.Div,
-        ast.Pow,
-        ast.USub,
-        ast.UAdd,
-        ast.Constant,
-    )
+    try:
+        sanitized = fn.lower().replace("^", "**").replace(" ", "")
+        expr = sp.sympify(sanitized)
+        result = expr.subs(x, x_value)
+        result = sp.N(result)
+    except Exception as e:
+        raise ValueError(f"Error matemático: {e}")
 
-    for subnode in ast.walk(node):
-
-        if not isinstance(subnode, allowed_nodes):
-            raise ValueError(f"La expresión '{subnode}' no es permitida")
-
-        if isinstance(subnode, ast.Name):
-            if subnode.id not in VALID_SYMBOLS and subnode.id != "x":
-                raise ValueError(f"'{subnode.id}' no está permitido.")
-
-        if isinstance(subnode, ast.Call):
-            if not isinstance(subnode.func, ast.Name):
-                raise ValueError("Llamada inválida.")
-            if subnode.func.id not in VALID_SYMBOLS:
-                raise ValueError(f"Función '{subnode.func.id}' no permitida.")
-
-    return eval(
-        compile(node, "<string>", "eval"),
-        {"__builtins__": {}},
-        {**VALID_SYMBOLS, "x": x},
-    )
+    return result
 
 
 # Modelos
@@ -63,7 +37,7 @@ def limit(raw_fn: str, trend: float, precision: float):
     upper = trend + precision
     l1 = safe_eval(raw_fn, lower)
     l2 = safe_eval(raw_fn, upper)
-    exists = (l1 * l2) >= 0
+    exists = (l1 >= 0 and l2 >= 0) or (l1 <= 0 and l2 <= 0)
     average = str((l1 + l2) / 2)
     return average if exists else "El límite no existe"
 
@@ -88,13 +62,15 @@ def definite_integral(
     frequencies = []
     previous_interval = lower_limit
 
-    for k in range(intervals + 1):
+    intervals_limit = intervals + 1
+
+    for k in range(intervals_limit):
         xk = previous_interval if k == 0 else previous_interval + precision
         previous_interval = xk
         yk = safe_eval(raw_fn, xk)
         frequency = 1
 
-        if k != 0 or k != intervals:
+        if k != 0 and k != intervals_limit:
             frequency = 2 if k % 2 == 0 else 4
 
         frequencies.append(yk * frequency)
@@ -131,7 +107,7 @@ OPERATIONS_CONFIG: OperationConfig = {
 }
 
 
-def validate(name: str, value: str, cast: Callable):
+def validate(name: str, value: str, cast: Callable = sp.Float):
     if not value:
         raise ValueError(f"Ingrese el valor de {name}")
 
@@ -142,15 +118,15 @@ def validate(name: str, value: str, cast: Callable):
 
 
 def calculate_limit(fn: str, trend: float, precision: float):
-    x = validate("Tendencia", trend, float)
-    h = validate("Precision", precision, float)
+    x = validate("Tendencia", trend)
+    h = validate("Precision", precision)
 
     return limit(fn, x, h)
 
 
 def calculate_derivative(fn: str, x: float, precision: float, order: int):
-    x = validate("x", x, float)
-    h = validate("precision", precision, float)
+    x = validate("x", x)
+    h = validate("precision", precision)
     order = validate(
         "orden",
         order,
@@ -163,8 +139,8 @@ def calculate_derivative(fn: str, x: float, precision: float, order: int):
 def calculate_definite_integral(
     fn: str, lower_limit: float, upper_limit: float, intervals: int
 ):
-    a = validate("limite inferior", lower_limit, float)
-    b = validate("limite superior", upper_limit, float)
+    a = validate("limite inferior", lower_limit)
+    b = validate("limite superior", upper_limit)
     n = validate("intérvalos", intervals, int)
 
     return definite_integral(fn, a, b, n)
@@ -341,23 +317,26 @@ class CalculadoraAN:
         ]
 
     def calculate(self):
-        self.error_message.config(text="")
-        self.result_message.config(text="")
+        try:
+            self.error_message.config(text="")
+            self.result_message.config(text="")
 
-        operation = self.operation_type.get()
-        values = self.get_values()
-        operation_fn = None
+            operation = self.operation_type.get()
+            values = self.get_values()
+            operation_fn = None
 
-        if operation == "Límite":
-            operation_fn = calculate_limit
-        elif operation == "Derivada":
-            operation_fn = calculate_derivative
-        elif operation == "Integral definida":
-            operation_fn = calculate_definite_integral
+            if operation == "Límite":
+                operation_fn = calculate_limit
+            elif operation == "Derivada":
+                operation_fn = calculate_derivative
+            elif operation == "Integral definida":
+                operation_fn = calculate_definite_integral
 
-        result = operation_fn(*values)
+            result = operation_fn(*values)
 
-        self.result_message.config(text=f"Resultado: {result}")
+            self.result_message.config(text=f"Resultado: {str(result)}")
+        except Exception as e:
+            self.error_message.config(text=f"Revisar: {str(e)}")
 
 
 if __name__ == "__main__":

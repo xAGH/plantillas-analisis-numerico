@@ -1,4 +1,4 @@
-import utils as safe_eval
+from utils.safe_eval import safe_eval
 
 
 def derivative(raw_fn: str, x: float, order=1, h=1e-5):

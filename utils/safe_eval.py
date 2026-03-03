@@ -1,6 +1,6 @@
 import ast
 
-from constants import VALID_SYMBOLS
+from constants.valid_symbols import VALID_SYMBOLS
 
 
 def safe_eval(fn: str, x: float) -> float:

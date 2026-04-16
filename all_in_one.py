@@ -12,6 +12,39 @@ VALID_SYMBOLS = {k: getattr(math, k) for k in dir(math) if not k.startswith("_")
 VALID_SYMBOLS["pi"] = math.pi
 VALID_SYMBOLS["e"] = math.e
 
+BG_COLOR = "#1e1e2f"
+FG_COLOR = "#e5e5e5"
+BTN_COLOR = "#3a3a5f"
+ERROR_COLOR = "#ff6f59"
+SUCCESS_COLOR = "#8EF74C"
+CREDITS_COLOR = "#404051"
+OPERATIONS_CONFIG: Dict[str, List[Tuple[str, Union[int, float, None]]]] = {
+    "Límite": [
+        ("Tendencia (x →):", None),
+        ("Precisión:", 0.0001),
+    ],
+    "Derivada": [
+        ("Valor de x:", None),
+        ("h:", 0.0001),
+        ("Orden (1 o 2):", 1),
+    ],
+    "Integral definida": [
+        ("Límite inferior:", None),
+        ("Límite superior:", None),
+        ("Intervalos (n):", 36),
+    ],
+    "Integral impropia (simpson)": [
+        ("Límite inferior (float o -inf):", None),
+        ("Límite superior (float o inf):", None),
+        ("Intervalos (n):", 40),
+    ],
+    "Newton-Raphson": [
+        ("Valor inicial x0:", None),
+        ("Tolerancia:", 1e-6),
+        ("Iteraciones máximas:", 100),
+    ],
+}
+
 
 def safe_eval(fn: str, x_value):
 
@@ -81,39 +114,78 @@ def definite_integral(
     return result
 
 
-OperationConfig = Dict[str, List[Tuple[str, Union[int, float, None]]]]
+def improper_integral_arctan(
+    raw_fn: str,
+    intervals: int = 40,
+    epsilon: float = 0.0005,
+):
+    fn = lambda x: safe_eval(raw_fn, x)
 
-BG_COLOR = "#1e1e2f"
-FG_COLOR = "#e5e5e5"
-BTN_COLOR = "#3a3a5f"
-ERROR_COLOR = "#ff6f59"
-SUCCESS_COLOR = "#8EF74C"
-CREDITS_COLOR = "#404051"
-OPERATIONS_CONFIG: OperationConfig = {
-    "Límite": [
-        ("Tendencia (x →):", None),
-        ("Precisión:", 0.0001),
-    ],
-    "Derivada": [
-        ("Valor de x:", None),
-        ("h:", 0.0001),
-        ("Orden (1 o 2):", 1),
-    ],
-    "Integral definida": [
-        ("Límite inferior:", None),
-        ("Límite superior:", None),
-        ("Intervalos (n):", 36),
-    ],
-}
+    a = -math.pi / 2 + epsilon
+    b = math.pi / 2 - epsilon
+
+    h = (b - a) / intervals
+    total = 0
+
+    for i in range(intervals + 1):
+        t = a + i * h
+
+        x = math.tan(t)
+        dx_dt = 1 / (math.cos(t) ** 2)  # sec^2(t)
+
+        y = fn(x) * dx_dt
+
+        weight = 1
+        if i != 0 and i != intervals:
+            weight = 4 if i % 2 != 0 else 2
+
+        total += weight * y
+
+    return (h / 3) * total
 
 
+def newton_raphson(
+    raw_fn: str,
+    x0: float,
+    tol: float = 1e-6,
+    max_iter: int = 100,
+):
+    fn = lambda x: safe_eval(raw_fn, x)
+
+    x = x0
+
+    for _ in range(max_iter):
+        fx = fn(x)
+        dfx = derivative(raw_fn, x)
+
+        if dfx == 0:
+            raise ValueError("Derivada cero, no se puede continuar")
+
+        x_new = x - fx / dfx
+
+        if abs(x_new - x) < tol:
+            return x_new
+
+        x = x_new
+
+    raise ValueError("No converge en el número máximo de iteraciones")
+
+
+# Wrappers
 def validate(name: str, value: str, cast: Callable = sp.Float):
     if not value:
         raise ValueError(f"Ingrese el valor de {name}")
 
     try:
-        return cast(value)
-    except:
+        # Normalización básica
+        sanitized = value.lower().replace("^", "**").replace(" ", "")
+
+        # Permitir constantes como pi, e y operaciones
+        expr = sp.sympify(sanitized)
+        result = sp.N(expr)
+
+        return cast(result)
+    except Exception:
         raise ValueError(f"{name} debe ser un {cast.__name__} válido")
 
 
@@ -144,6 +216,23 @@ def calculate_definite_integral(
     n = validate("intérvalos", intervals, int)
 
     return definite_integral(fn, a, b, n)
+
+
+def calculate_improper_simpson(
+    fn: str, a: Optional[float], b: Optional[float], intervals: int
+):
+    a = None if a.lower() == "-inf" else validate("limite inferior", a)
+    b = None if b.lower() == "inf" else validate("limite superior", b)
+    n = validate("intervalos", intervals, int)
+    return improper_integral_arctan(fn, n)
+
+
+def calculate_newton(fn: str, x0, tol, max_iter):
+    x0 = validate("x0", x0)
+    tol = validate("tolerancia", tol)
+    max_iter = validate("iteraciones", max_iter, int)
+
+    return newton_raphson(fn, x0, tol, max_iter)
 
 
 def build_frame(master: Union[Tk, Frame]):
@@ -205,7 +294,13 @@ def build_operation_selector(
     combo = Combobox(
         master,
         textvariable=variable,
-        values=["Límite", "Derivada", "Integral definida"],
+        values=[
+            "Límite",
+            "Derivada",
+            "Integral definida",
+            "Integral impropia (simpson)",
+            "Newton-Raphson",
+        ],
     )
     combo.pack()
     combo.bind("<<ComboboxSelected>>", callback)
@@ -331,6 +426,10 @@ class CalculadoraAN:
                 operation_fn = calculate_derivative
             elif operation == "Integral definida":
                 operation_fn = calculate_definite_integral
+            elif operation == "Integral impropia (simpson)":
+                operation_fn = calculate_improper_simpson
+            elif operation == "Newton-Raphson":
+                operation_fn = calculate_newton
 
             result = operation_fn(*values)
 
